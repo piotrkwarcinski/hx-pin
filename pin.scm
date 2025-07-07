@@ -324,12 +324,13 @@
 ;; Open pinned files. 
 (define (pin-open-pinned)
   (define pinned (pin-get-list))
-    (for-each
-      (λ (pin) (begin
-        (hlx.cmd.open (Pin-path pin))
-        (jump-to-position)
-        )) pinned)
-  (pin-goto 0))
+  (for-each
+    (λ (pin) (begin
+      (hlx.cmd.open (Pin-path pin))
+      (jump-to-position)
+      )) pinned)
+  (when (> (length pinned) 0)
+    (pin-goto 0)))
 
 (provide pin-add)
 (provide pin-open)

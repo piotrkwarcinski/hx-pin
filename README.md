@@ -19,8 +19,13 @@ A Helix plugin for pinning files.
 forge pkg install --git https://github.com/piotrkwarcinski/hx-pin.git
 ```
 
-Configure keybindings
+Example of configuration in `init.scm`
 ```
+(require (prefix-in pin. "hx-pin/pin.scm"))
+
+(when (equal? (command-line) '("hx"))
+  (pin.pin-open-pinned))
+
 (keymap (global)
         (normal
           (space (space ":pin.pin-open-selector")

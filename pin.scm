@@ -170,7 +170,6 @@
   (define document (transduce
     (hlx.editor.editor-all-documents)
     (filtering (λ (doc) (equal? (hlx.editor.editor-document->path doc) path)))
-    ; (mapping (λ (doc) (begin (simple-displayln doc) doc)))
     (into-list)))
   (if (null? document)
       #false
@@ -294,10 +293,10 @@
          [subpaths (to-subpaths paths)]
          [index (list-find paths (current-path) 0)]
          [start-index (if index index 0)])
-    (dbg! paths)
-    (dbg! subpaths)
-    (dbg! index)
-    (dbg! start-index)
+    ; (dbg! paths)
+    ; (dbg! subpaths)
+    ; (dbg! index)
+    ; (dbg! start-index)
     (hlx.misc.push-component!
       (selector.new-selector
         subpaths

@@ -120,7 +120,9 @@
 
   (cond
     [(key-event-escape? event) event-result/close]
-    
+
+    [(empty? (unbox items)) event-result/ignore]
+
     [(equal? char 'j)
      (move-cursor-down state)
      (define item (list-ref (unbox (Selector-items state)) (unbox (Selector-cursor state))))

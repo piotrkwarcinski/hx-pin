@@ -62,7 +62,7 @@
   (string->jsexpr input-str))
 
 ;;@doc
-;; A map of projectPath->[]Pin. 
+;; A map of projectPath->[]Pin.
 (define *pins* (json->pins (read-pins-json)))
 
 (define (helix-picker! pick-list)
@@ -92,8 +92,12 @@
   (define json (pins->json pins))
   (define merged (merge-hashes file-pins json))
   (define json-str (value->jsexpr-string merged))
+  (if (path-exists? PIN-PATH)
+    (delete-file! PIN-PATH))
   (let ([output-file (open-output-file PIN-PATH)])
-             (write-string json-str output-file)))
+             (write-string json-str output-file)
+             (flush-output-port output-file)
+             (close-output-port output-file)))
 
 (define (current-row)
   (hlx.static.get-current-line-number))
@@ -186,10 +190,13 @@
 ;; Remove file from pinned files.
 (define (pin-remove path)
   (define got (pin-get-list))
-  (define current (filter (λ (p) (not (equal? (Pin-path p) path))) got))
-  (set! *pins* (hash-insert *pins* (cwd-key) current))
-  (flush-pins *pins*)
-  (map (λ (p) (Pin-path p)) current))
+  (if (not (empty? got))
+    (begin
+      (define current (filter (λ (p) (not (equal? (Pin-path p) path))) got))
+      (set! *pins* (hash-insert *pins* (cwd-key) current))
+      (flush-pins *pins*)
+      (map (λ (p) (Pin-path p)) current))
+    '()))
 
 (define (list-swap ls src dst)
   (define (s new-ls i)
@@ -209,7 +216,7 @@
     [else (list-find (cdr ls) el (+ from 1))]))
 
 ;;@doc
-;; Open pinned files picker. 
+;; Open pinned files picker.
 (define (pin-open)
   (helix-exp-picker!
     (transduce
@@ -233,7 +240,7 @@
     (begin
       (hlx.cmd.open subpath)
       (jump-to-position)))))
- 
+
 (define (selector-open subpath _ _)
   (define path (expand-subpath subpath))
   (define doc (path-opened path))
@@ -269,7 +276,7 @@
         (set-box! cursor new-idx)
         (set-box! items (to-subpaths (map Pin-path swapped)))
         (flush-pins *pins*))))
- 
+
 ;; @doc
 ;; Open pinned files selector.
 (define (pin-open-selector)
@@ -305,14 +312,14 @@
                                               (list->hashset all)))))
 
  ;;@doc
-;; Close all other files except pinned ones. 
+;; Close all other files except pinned ones.
 (define (pin-close-others)
   (map hlx.cmd.buffer-close (pin-get-others)))
 
  ;;@doc
 ;; Close all files and open pinned files.
 ;; Together with ordering of pinned files this allows to modify
-;; the order of helix buffers (as long as they are pinned). 
+;; the order of helix buffers (as long as they are pinned).
 (define (pin-refresh)
   (hlx.cmd.buffer-close-all)
   (pin-open-pinned)
@@ -322,7 +329,7 @@
    (hlx.cmd.open PIN-PATH))
 
 ;;@doc
-;; Open pinned files. 
+;; Open pinned files.
 (define (pin-open-pinned)
   (define pinned (pin-get-list))
   (for-each

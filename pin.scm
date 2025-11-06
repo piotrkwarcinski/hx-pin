@@ -258,9 +258,10 @@
       (hlx.cmd.open subpath)
       (jump-to-position))))
 
-(define (selector-remove path items _)
+(define (selector-remove path items cursor)
   (define updated (pin-remove (expand-subpath path)))
-  (set-box! items (to-subpaths updated)))
+  (set-box! items (to-subpaths updated))
+  (set-box! cursor (- (unbox cursor) 1)))
 
 (define (selector-order-up subpath items cursor times)
   (define path (expand-subpath subpath))

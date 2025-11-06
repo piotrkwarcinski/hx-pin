@@ -178,7 +178,8 @@
   (define pin (Pin (current-path) (current-row) (current-col)))
   (define got (pin-get-list))
   (set! got (filter (λ (p) (not (equal? (Pin-path p) (Pin-path pin)))) got))
-  (set! *pins* (hash-insert *pins* (cwd-key) (cons pin got)))
+  ;; append to the end of the list
+  (set! *pins* (hash-insert *pins* (cwd-key) (append got (list pin))))
   (flush-pins *pins*))
 
 ;;@doc

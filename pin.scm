@@ -14,10 +14,13 @@
 
 (struct Pin (path row col) #:transparent)
 
+; @doc
+; Returns current path or #false in case of scratch buffer.
 (define (current-path)
   (let* ([focus (hlx.editor.editor-focus)]
          [focus-doc-id (hlx.editor.editor->doc-id focus)])
-    (hlx.editor.editor-document->path focus-doc-id)))
+    (define path (hlx.editor.editor-document->path focus-doc-id))
+    (if (string? path) (canonicalize-path path) #f)))
 
 (define (hash->struct struct-descriptor struct-constructor json)
     (define fields (hash-get struct-descriptor '#:fields))
@@ -83,8 +86,8 @@
 
 (define (merge-hashes h1 h2)
   (define result (hash))
-  (map (λ (entry) (set! result (hash-insert result (car entry) (second entry)))) h1)
-  (map (λ (entry) (set! result (hash-insert result (car entry) (second entry)))) h2)
+  (map (λ (key) (set! result (hash-insert result key (hash-ref h1 key)))) (hash-keys->list h1))
+  (map (λ (key) (set! result (hash-insert result key (hash-ref h2 key)))) (hash-keys->list h2))
   result)
 
 (define (flush-pins pins)
@@ -124,35 +127,46 @@
   ;; it's rather impossible to not get a result here, thus car
   (car (filter (λ (pin) (equal? (Pin-path pin) path)) pins)))
 
-(define (move-right times)
-  (when (> times 0)
-    (hlx.static.move_char_right)
-    (move-right (- times 1))))
-
 (define (jump-to-position)
   (define pin (get-pin-with-path (current-path)))
   ;; ~> servers as "threading macro"
   ;; it passes the result of consecutive calls to
   ;; subsequent functions. It allows for a cleaner
   ;; way of showing data flow.
+  ;
+  ;; Even though a number? shows #t
+  ;; goto expects integers so firstly
+  ;; we need to ensure cast is safe by floor
+  ;; and then cast it using inexact->exact
+  (define goto-line (λ (n) (hlx.cmd.goto-line (+ n 1))))
   (~> (Pin-row pin)
-      (number->string)
-      (hlx.cmd.goto))
+      (floor)
+      (inexact->exact)
+      (goto-line))
   (hlx.static.align_view_center)
-  (move-right (Pin-col pin)))
+  (~> (Pin-col pin)
+      (floor)
+      (inexact->exact)
+      (hlx.cmd.goto-column)))
 
 (define (helix-exp-picker! pick-list)
   (hlx.misc.push-component! (#%exp-picker pick-list jump-to-position)))
 
+(define (to-subpath path)
+  (if (starts-with? path (cwd))
+      (begin
+        (define p (string-replace path (cwd) ""))
+        (substring p 1 (string-length p)))
+      path))
+
 (define (to-subpaths paths)
   (transduce
      paths
-     (mapping (λ (path) (string-replace path (cwd) "")))
-     (mapping (λ (subpath) (substring subpath 1 (string-length subpath))))
+     (mapping to-subpath)
      (into-list)))
 
  (define (expand-subpath subpath)
-   (string-append (cwd) "/" subpath))
+   (canonicalize-path subpath))
 
  (define (expand-subpaths paths)
   (transduce
@@ -164,26 +178,44 @@
   (map hlx.editor.editor-document->path (hlx.editor.editor-all-documents)))
 
 ; @doc
-; Check if path is already opened..
+; Check if canonicalized path is already opened.
 ; Returns documentID if opened, otherwise #false.
 (define (path-opened path)
-  (define document (transduce
+  (define path-doc-pairs (transduce
     (hlx.editor.editor-all-documents)
-    (filtering (λ (doc) (equal? (hlx.editor.editor-document->path doc) path)))
+    (mapping (λ (doc) `(doc ,(hlx.editor.editor-document->path doc))))
+    (filtering (λ (p) (string? (cdr p))))
+    (mapping (λ (p) (canonicalize-path (cdr p))))
+    (filtering (λ (p) (equal? (cdr p) path)))
     (into-list)))
-  (if (null? document)
+  (if (null? path-doc-pairs)
       #false
-      (car document)))
+      (car (car path-doc-pairs))))
 
 ;;@doc
 ;; Add current file to pinned files.
 (define (pin-add)
-  (define pin (Pin (current-path) (current-row) (current-col)))
-  (define got (pin-get-list))
-  (set! got (filter (λ (p) (not (equal? (Pin-path p) (Pin-path pin)))) got))
-  ;; append to the end of the list
-  (set! *pins* (hash-insert *pins* (cwd-key) (append got (list pin))))
-  (flush-pins *pins*))
+  (define path (current-path))
+  (if (string? path)
+    (begin
+      (define pin (Pin path (current-row) (current-col)))
+      (define exists #f)
+      ;; Preserves the position in the list if already exists.
+      (define got
+        (transduce
+          (pin-get-list)
+          (mapping (λ (p) (if (equal? (Pin-path p) (Pin-path pin))
+                              (begin (set! exists #t) pin)
+                              p
+                              )))
+          (into-list)))
+      ;; Otherwise appends to the end of the list
+      (when (not exists)
+            (set! got (append got (list pin))))
+      (set! *pins* (hash-insert *pins* (cwd-key) got))
+      (flush-pins *pins*))
+    ;; scrach buffers currently have no path
+    (error "document has no path")))
 
 ;;@doc
 ;; Remove file from pinned files.
@@ -199,8 +231,6 @@
 
 (define (list-swap ls src dst)
   (define (s new-ls i)
-    ; (dbg! new-ls)
-    ; (dbg! i)
     (cond
       [(< i 0) new-ls]
       [(= i src) (s (cons (list-ref ls dst) new-ls) (- i 1))]
@@ -230,14 +260,12 @@
     (set! num (string->number num)))
   (define cwd (hlx.static.get-helix-cwd))
   (let* ([paths (map Pin-path (pin-get-list))]
-         [subpaths (to-subpaths paths)]
-         [subpath (list-ref subpaths num)]
          [path (list-ref paths num)])
   (define doc (path-opened path))
   (if doc
     (hlx.editor.editor-switch-action! doc (hlx.editor.Action/Replace))
     (begin
-      (hlx.cmd.open subpath)
+      (hlx.cmd.open path)
       (jump-to-position)))))
 
 (define (selector-open subpath _ _)
@@ -290,9 +318,10 @@
     (string->symbol "(") (λ (path items cursor) (selector-order-up path items cursor -1))
     (string->symbol ")") (λ (path items cursor) (selector-order-up path items cursor 1))
   ))
+  (define path (current-path))
   (let* ([paths (map Pin-path (pin-get-list))]
          [subpaths (to-subpaths paths)]
-         [index (list-find paths (current-path) 0)]
+         [index (if (string? path) (list-find paths path 0) 0)]
          [start-index (if index index 0)])
     ; (dbg! paths)
     ; (dbg! subpaths)
@@ -322,14 +351,13 @@
 ;; the order of helix buffers (as long as they are pinned).
 (define (pin-refresh)
   (hlx.cmd.buffer-close-all)
-  (pin-open-pinned)
-  (pin-goto 0))
+  (pin-open-pinned))
 
 (define (pin-open-config)
    (hlx.cmd.open PIN-PATH))
 
 ;;@doc
-;; Open pinned files.
+;; Open pinned files and go to the first one.
 (define (pin-open-pinned)
   (define pinned (pin-get-list))
   (for-each
